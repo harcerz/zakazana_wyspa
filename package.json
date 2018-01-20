@@ -1,0 +1,24 @@
+{
+  "name": "zakazana_wyspa",
+  "version": "1.0.0",
+  "description": "Gra zakazana wyspa",
+  "main": "index.js",
+  "dependencies": {
+    "socket.io": "^2.0.4"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/harcerz/zakazana_wyspa.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/harcerz/zakazana_wyspa/issues"
+  },
+  "homepage": "https://github.com/harcerz/zakazana_wyspa#readme"
+}
