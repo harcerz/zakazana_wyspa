@@ -22,33 +22,41 @@ $(function () {
     let selectedData = {};
 
     // --- LOBBY LOGIC ---
-    readyBtn.on('click', function() {
+    const joinBtn = $('#join-btn');
+    const hostControls = $('#host-controls');
+
+    joinBtn.on('click', function() {
         const playerName = playerNameInput.val().trim();
         if (playerName) {
-            socket.emit('playerReady', { name: playerName });
+            socket.emit('playerJoin', { name: playerName });
             playerNameInput.prop('disabled', true);
-            difficultySelect.prop('disabled', true);
-            $(this).prop('disabled', true).text('Waiting...');
+            $(this).prop('disabled', true).text('Joined');
         } else {
             alert('Please enter your name.');
         }
     });
 
+    startGameBtn.on('click', function() {
+        socket.emit('startGame', { difficulty: difficultySelect.val() });
+    });
+
     socket.on('lobbyUpdate', (lobbyState) => {
         playerList.empty();
         lobbyState.players.forEach(p => {
-            const playerDiv = $('<div>').text(`${p.name} - ${p.isReady ? 'Ready' : 'Not Ready'}`);
+            const playerDiv = $('<div>').text(`${p.name} ${p.isHost ? '(Host)' : ''}`);
             playerList.append(playerDiv);
         });
 
-        if (lobbyState.allReady && lobbyState.canStart) {
-            startGamePrompt.show();
-            const me = lobbyState.players.find(p => p.id === socket.id);
-            if (me && me.isHost) {
-                 socket.emit('startGame', { difficulty: difficultySelect.val() });
+        const me = lobbyState.players.find(p => p.id === socket.id);
+        if (me && me.isHost) {
+            hostControls.show();
+            if (lobbyState.canStart) {
+                startGameBtn.prop('disabled', false);
+                $('#start-game-prompt').text('Ready to start!');
+            } else {
+                startGameBtn.prop('disabled', true);
+                $('#start-game-prompt').text(`Waiting for more players... (${lobbyState.players.length}/1 minimum)`);
             }
-        } else {
-            startGamePrompt.hide();
         }
     });
 

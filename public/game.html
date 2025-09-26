@@ -10,14 +10,20 @@
       <h1>Forbidden Island</h1>
       <div id="player-list"></div>
       <input type="text" id="player-name-input" placeholder="Enter your name">
-      <select id="difficulty-select">
-          <option value="2">Novice</option>
-          <option value="3">Normal</option>
-          <option value="4">Elite</option>
-          <option value="5">Legendary</option>
-      </select>
-      <button id="ready-btn">Ready</button>
-      <p id="start-game-prompt" style="display:none;">Waiting for all players to be ready...</p>
+      <button id="join-btn">Join</button>
+      <div id="host-controls" style="display:none;">
+        <hr>
+        <h3>Host Controls</h3>
+        <label for="difficulty-select">Difficulty:</label>
+        <select id="difficulty-select">
+            <option value="2">Novice</option>
+            <option value="3">Normal</option>
+            <option value="4">Elite</option>
+            <option value="5">Legendary</option>
+        </select>
+        <button id="start-game-btn" disabled>Start Game</button>
+        <p id="start-game-prompt">Waiting for players to join...</p>
+      </div>
    </div>
 
    <div id="game-container" style="display: none;">

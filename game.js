@@ -38,7 +38,7 @@ const WATER_LEVEL_MAX = 10;
 let gameState = {};
 let lobbyPlayers = [];
 const MAX_PLAYERS = 4;
-const MIN_PLAYERS = 2;
+const MIN_PLAYERS = 1;
 
 function shuffle(array) { for (let i = array.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [array[i], array[j]] = [array[j], array[i]]; } return array; }
 function addPlayerToLobby(id) { if (lobbyPlayers.length < MAX_PLAYERS) { const isHost = lobbyPlayers.length === 0; lobbyPlayers.push({ id, name: '', isReady: false, isHost }); return true; } return false; }

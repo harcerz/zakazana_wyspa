@@ -45,16 +45,18 @@ io.sockets.on('connection', function (socket) {
 
    io.sockets.emit('lobbyUpdate', getLobbyState());
 
-   socket.on('playerReady', (data) => {
+   socket.on('playerJoin', (data) => {
        setPlayerReady(socket.id, data.name);
-       const lobbyState = getLobbyState();
-       io.sockets.emit('lobbyUpdate', lobbyState);
+       io.sockets.emit('lobbyUpdate', getLobbyState());
+   });
 
-       // Check if game can start
-       if (lobbyState.allReady && lobbyState.canStart) {
-           console.log("All players ready, starting game...");
+   socket.on('startGame', (data) => {
+       const lobbyState = getLobbyState();
+       const player = lobbyState.players.find(p => p.id === socket.id);
+       if (player && player.isHost && lobbyState.canStart) {
+           console.log("Host started game...");
            gameInProgress = true;
-           const initialState = initializeGame(data.difficulty || 2);
+           const initialState = initializeGame(data.difficulty);
            io.sockets.emit('gameStarted', initialState);
        }
    });
