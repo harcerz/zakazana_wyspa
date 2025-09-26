@@ -43,10 +43,8 @@ $(function () {
 
         if (lobbyState.allReady && lobbyState.canStart) {
             startGamePrompt.show();
-            // The first player who readied up can start the game
             const me = lobbyState.players.find(p => p.id === socket.id);
             if (me && me.isHost) {
-                 // Automatically start for simplicity, or add a start button for the host
                  socket.emit('startGame', { difficulty: difficultySelect.val() });
             }
         } else {
@@ -80,6 +78,21 @@ $(function () {
         if (gameState.gameOver) {
             $('#game-over-message').text(`${gameState.gameOver.status === 'win' ? 'You Win!' : 'Game Over!'} ${gameState.gameOver.reason}`);
             $('#game-over-overlay').show();
+            return;
+        }
+
+        const me = gameState.players.find(p => p.id === socket.id);
+        if (gameState.phase === 'discard' && me && me.needsToDiscard) {
+            const discardOverlay = $('#discard-overlay');
+            const discardOptions = $('#discard-options');
+            discardOptions.empty();
+            me.hand.forEach(card => {
+                const cardButton = $('<button>').text(card.name);
+                discardOptions.append(cardButton);
+            });
+            discardOverlay.show();
+        } else {
+            $('#discard-overlay').hide();
         }
     });
 
@@ -96,7 +109,6 @@ $(function () {
         alert('Game has ended due to a player leaving.');
         gameContainer.hide();
         lobby.show();
-        // Reset lobby UI elements
         playerNameInput.prop('disabled', false).val('');
         difficultySelect.prop('disabled', false);
         readyBtn.prop('disabled', false).text('Ready');
@@ -115,6 +127,8 @@ $(function () {
             promptGiveCard();
         } else if (action === 'navigate') {
             promptSelectPlayerToNavigate();
+        } else if (action === 'sandbags') {
+            actionPrompt.text('Select any flooded tile to shore up.');
         } else {
             actionPrompt.text(`Select a tile to ${action.replace('-', ' ')}.`);
         }
@@ -126,6 +140,11 @@ $(function () {
 
         const me = localGameState.players.find(p => p.id === socket.id);
         const tileId = $(this).data('tileId');
+
+        if (currentAction === 'sandbags') {
+            socket.emit('playerAction', { action: 'sandbags', tileId: tileId });
+            return;
+        }
 
         if (currentAction === 'navigate') {
             socket.emit('playerAction', {
@@ -139,7 +158,7 @@ $(function () {
         if (currentAction === 'shore-up' && me.role.name === 'Engineer' && !selectedData.tileId) {
             selectedData.tileId = tileId;
             actionPrompt.text('Select a second tile to shore up (or the same tile again).');
-            return; // Wait for second tile selection
+            return;
         }
 
         let payload = { action: currentAction, tileId };
@@ -171,6 +190,11 @@ $(function () {
         if (currentAction !== 'navigate') return;
         selectedData.targetPlayerId = $(this).data('playerId');
         actionPrompt.text('Select a destination tile for the player.');
+    });
+
+    $('#discard-options').on('click', 'button', function() {
+        const cardName = $(this).text();
+        socket.emit('discardAction', { cardName });
     });
 
     function resetActionState() {
@@ -212,30 +236,32 @@ $(function () {
         });
     }
 
-function promptSelectPlayerToNavigate() {
-    actionPrompt.empty();
-    actionPrompt.append('<p>Select a player to move:</p>');
-    localGameState.players.forEach(player => {
-        const playerButton = $('<button>')
-            .addClass('prompt-navigate-player')
-            .text(player.name);
-        playerButton.data('playerId', player.id);
-        actionPrompt.append(playerButton);
-    });
-}
+    function promptSelectPlayerToNavigate() {
+        actionPrompt.empty();
+        actionPrompt.append('<p>Select a player to move:</p>');
+        localGameState.players.forEach(player => {
+            const playerButton = $('<button>')
+                .addClass('prompt-navigate-player')
+                .text(player.name);
+            playerButton.data('playerId', player.id);
+            actionPrompt.append(playerButton);
+        });
+    }
 
     function renderGame(state) {
         renderGameBoard(state.board, state.players);
         renderPlayerInfo(state.players);
         renderGameInfo(state);
 
-        // Show/hide role-specific action buttons
         const me = state.players.find(p => p.id === socket.id);
+        if (!me) return;
+
         const isMyTurn = state.players[state.turn].id === socket.id;
         const flyButton = $('[data-action="fly"]');
         const navigateButton = $('[data-action="navigate"]');
+        const sandbagsButton = $('[data-action="sandbags"]');
 
-        if (me && isMyTurn) {
+        if (isMyTurn) {
             if (me.role.name === 'Pilot' && !me.flyUsedThisTurn) flyButton.show();
             else flyButton.hide();
 
@@ -245,33 +271,38 @@ function promptSelectPlayerToNavigate() {
             flyButton.hide();
             navigateButton.hide();
         }
+
+        if (me.hand.some(c => c.name === 'Sandbags')) {
+            sandbagsButton.show();
+        } else {
+            sandbagsButton.hide();
+        }
     }
 
     function renderGameBoard(board, players) {
         gameBoard.empty();
-        let tileIndex = 0;
-        const boardGrid = Array(25).fill(null);
-        board.forEach(tile => {
-            boardGrid[tile.id] = tile;
+        gameBoard.css({
+            'display': 'grid',
+            'grid-template-rows': 'repeat(6, 100px)',
+            'grid-template-columns': 'repeat(6, 100px)',
         });
 
-        let currentTileId = 0;
-        for(let i=0; i<5; i++){
-            for(let j=0; j<5; j++){
-                const isPlaceholder = ((i === 0 || i === 4) && (j === 0 || j === 4)) ||
-                                    ((i === 0 || i === 4) && (j === 1 || j === 3)) ||
-                                    ((i === 1 || i === 3) && (j === 0 || j === 4));
+        const grid = Array(6).fill(null).map(() => Array(6).fill(null));
 
-                if (isPlaceholder) {
-                    gameBoard.append($('<div>').addClass('tile-placeholder'));
-                } else {
-                    const tileData = board.find(t => t.id === currentTileId);
-                    currentTileId++;
-                    if(!tileData) {
-                         gameBoard.append($('<div>').addClass('tile-placeholder'));
-                         continue;
-                    };
+        const validCoords = [
+            [0,2],[0,3], [1,1],[1,2],[1,3],[1,4], [2,0],[2,1],[2,2],[2,3],[2,4],[2,5],
+            [3,0],[3,1],[3,2],[3,3],[3,4],[3,5], [4,1],[4,2],[4,3],[4,4], [5,2],[5,3]
+        ];
 
+        board.forEach((tileData, index) => {
+            const [r, c] = validCoords[index];
+            grid[r][c] = tileData;
+        });
+
+        for (let r = 0; r < 6; r++) {
+            for (let c = 0; c < 6; c++) {
+                const tileData = grid[r][c];
+                if (tileData) {
                     const tile = $('<div>').addClass('tile');
                     if (tileData.flooded) tile.addClass('flooded');
                     if (tileData.sunk) tile.addClass('sunk');
@@ -286,6 +317,8 @@ function promptSelectPlayerToNavigate() {
                         }
                     });
                     gameBoard.append(tile);
+                } else {
+                    gameBoard.append($('<div>').addClass('tile-placeholder'));
                 }
             }
         }

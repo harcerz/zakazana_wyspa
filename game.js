@@ -47,22 +47,98 @@ function setPlayerReady(id, name) { const player = lobbyPlayers.find(p => p.id =
 function getLobbyState() { const allReady = lobbyPlayers.every(p => p.isReady); const canStart = lobbyPlayers.length >= MIN_PLAYERS && lobbyPlayers.length <= MAX_PLAYERS; return { players: lobbyPlayers, allReady, canStart }; }
 function resetLobby() { lobbyPlayers = []; }
 
+function buildBoardGraph(boardTiles) {
+    const grid = Array(6).fill(null).map(() => Array(6).fill(null));
+    const adjacency = { orthogonal: new Map(), diagonal: new Map() };
+    const validCoords = [ [0,2],[0,3], [1,1],[1,2],[1,3],[1,4], [2,0],[2,1],[2,2],[2,3],[2,4],[2,5], [3,0],[3,1],[3,2],[3,3],[3,4],[3,5], [4,1],[4,2],[4,3],[4,4], [5,2],[5,3] ];
+    validCoords.forEach((coord, index) => { const [r, c] = coord; if(boardTiles[index]) { grid[r][c] = boardTiles[index]; } });
+    for (let r = 0; r < 6; r++) {
+        for (let c = 0; c < 6; c++) {
+            const currentTile = grid[r][c];
+            if (!currentTile) continue;
+            const orthoNeighbors = []; const diagNeighbors = [];
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue;
+                    const nr = r + dr; const nc = c + dc;
+                    if (nr >= 0 && nr < 6 && nc >= 0 && nc < 6 && grid[nr][nc]) {
+                        const neighborTile = grid[nr][nc];
+                        if (dr === 0 || dc === 0) orthoNeighbors.push(neighborTile.id);
+                        else diagNeighbors.push(neighborTile.id);
+                    }
+                }
+            }
+            adjacency.orthogonal.set(currentTile.id, orthoNeighbors);
+            adjacency.diagonal.set(currentTile.id, diagNeighbors);
+        }
+    }
+    return adjacency;
+}
+
 function initializeGame(difficulty) {
     const players = JSON.parse(JSON.stringify(lobbyPlayers));
     const islandTiles = islandTileNames.map((tileInfo, index) => ({ ...tileInfo, id: index, flooded: false, sunk: false }));
     const boardLayout = shuffle([...islandTiles]);
+    const boardGraph = buildBoardGraph(boardLayout);
     let treasureDeck = [];
     treasureDeckConfig.forEach(cardInfo => { for (let i = 0; i < cardInfo.count; i++) { treasureDeck.push({ type: cardInfo.type, name: cardInfo.name }); } });
     treasureDeck = shuffle(treasureDeck);
     let floodDeck = shuffle(islandTileNames.map(t => t.name));
     const assignedRoles = shuffle([...adventurerRoles]).slice(0, players.length);
     players.forEach((player, index) => { player.role = assignedRoles[index]; player.hand = []; const startTile = boardLayout.find(t => t.name === player.role.startTile); player.position = startTile.id; });
-    gameState = { players, board: boardLayout, treasureDeck, floodDeck, floodDiscard: [], treasureDiscard: [], waterLevel: parseInt(difficulty, 10), treasuresCaptured: [], turn: 0, actionsRemaining: 3, phase: 'actions', gameOver: null };
+    gameState = { players, board: boardLayout, boardGraph, treasureDeck, floodDeck, floodDiscard: [], treasureDiscard: [], waterLevel: parseInt(difficulty, 10), treasuresCaptured: [], turn: 0, actionsRemaining: 3, phase: 'actions', gameOver: null };
     players.forEach(player => { for (let i = 0; i < 2; i++) drawTreasureCard(player, true); });
     for (let i = 0; i < 6; i++) drawFloodCard();
     checkWinLossConditions();
     return gameState;
 }
+
+function areTilesAdjacent(tileId1, tileId2, allowDiagonal = false) {
+    const { boardGraph } = gameState;
+    if (!boardGraph) return false;
+    const orthoNeighbors = boardGraph.orthogonal.get(tileId1) || [];
+    if (orthoNeighbors.includes(tileId2)) return true;
+    if (allowDiagonal) {
+        const diagNeighbors = boardGraph.diagonal.get(tileId1) || [];
+        if (diagNeighbors.includes(tileId2)) return true;
+    }
+    return false;
+}
+
+function getDiverMoves(startTileId) {
+    const { board, boardGraph } = gameState;
+    const queue = [startTileId];
+    const visited = new Set([startTileId]);
+    const reachable = new Set();
+    const startTile = board.find(t => t.id === startTileId);
+
+    if (!startTile.flooded && !startTile.sunk) {
+        // Normal adjacent moves if starting on a dry tile
+        const neighbors = [...(boardGraph.orthogonal.get(startTileId) || []), ...(boardGraph.diagonal.get(startTileId) || [])];
+        return neighbors.map(id => board.find(t => t.id === id)).filter(t => t && !t.sunk).map(t => t.id);
+    }
+
+    while (queue.length > 0) {
+        const currentId = queue.shift();
+        const neighbors = [...(boardGraph.orthogonal.get(currentId) || []), ...(boardGraph.diagonal.get(currentId) || [])];
+
+        for (const neighborId of neighbors) {
+            if (!visited.has(neighborId)) {
+                visited.add(neighborId);
+                const neighborTile = board.find(t => t.id === neighborId);
+                if (neighborTile) {
+                    if (neighborTile.flooded || neighborTile.sunk) {
+                        queue.push(neighborId);
+                    } else {
+                        reachable.add(neighborId);
+                    }
+                }
+            }
+        }
+    }
+    return Array.from(reachable);
+}
+
 
 function checkWinLossConditions() {
     if (gameState.gameOver) return;
@@ -77,40 +153,54 @@ function checkWinLossConditions() {
     }
 }
 
+function handleDiscardAction(playerId, cardName) {
+    const player = gameState.players.find(p => p.id === playerId);
+    if (!player || gameState.phase !== 'discard' || !player.needsToDiscard) return { error: "It's not time to discard." };
+    const cardIndex = player.hand.findIndex(c => c.name === cardName);
+    if (cardIndex === -1) return { error: "Card not in hand." };
+    gameState.treasureDiscard.push(player.hand.splice(cardIndex, 1)[0]);
+    if (player.hand.length <= 5) {
+        player.needsToDiscard = false;
+        if (!gameState.players.some(p => p.needsToDiscard)) {
+            endTurnSequence();
+        }
+    }
+    return { success: true, gameState };
+}
+
 function handlePlayerAction(playerId, action) {
     if (gameState.gameOver) return { error: "The game is over." };
     const player = gameState.players.find(p => p.id === playerId);
     if (!player) return { error: "Player not found." };
-
-    // Handle special actions that can be played at any time
+    if (action.action === 'sandbags') {
+        const sandbagCardIndex = player.hand.findIndex(c => c.name === 'Sandbags');
+        if (sandbagCardIndex === -1) return { error: "You don't have a Sandbags card." };
+        const tileToShoreUp = gameState.board.find(t => t.id === action.tileId);
+        if (tileToShoreUp && tileToShoreUp.flooded) {
+            tileToShoreUp.flooded = false;
+            gameState.treasureDiscard.push(player.hand.splice(sandbagCardIndex, 1)[0]);
+            return { success: true, gameState };
+        } else { return { error: "You can only use Sandbags on a flooded tile." }; }
+    }
     if (action.action === 'helicopter-lift') {
         const heliCardIndex = player.hand.findIndex(c => c.name === 'Helicopter Lift');
         if (heliCardIndex === -1) return { error: "You don't have a Helicopter Lift card." };
-
         const foolsLanding = gameState.board.find(t => t.isHelicopterPad);
         const allPlayersOnPad = gameState.players.every(p => p.position === foolsLanding.id);
         if (allPlayersOnPad && gameState.treasuresCaptured.length === treasures.length) {
             gameState.gameOver = { status: 'win', reason: 'You have escaped the island with all the treasures!' };
             return { success: true, gameState };
-        } else {
-            return { error: "Not all players are on Fools' Landing with all treasures captured." };
-        }
+        } else { return { error: "Not all players are on Fools' Landing with all treasures captured." }; }
     }
-
     const isCurrentPlayer = gameState.players[gameState.turn].id === playerId;
     if (!isCurrentPlayer) return { error: "It's not your turn." };
     if (gameState.actionsRemaining <= 0) return { error: "You have no actions left." };
-
     let actionSuccessful = false;
     switch (action.action) {
         case 'fly': {
             if (player.role.name === 'Pilot' && !player.flyUsedThisTurn) {
                 const targetTile = gameState.board.find(t => t.id === action.tileId);
-                if (targetTile && !targetTile.sunk) {
-                    player.position = targetTile.id;
-                    player.flyUsedThisTurn = true;
-                    actionSuccessful = true;
-                }
+                if (targetTile && !targetTile.sunk) { player.position = targetTile.id; player.flyUsedThisTurn = true; actionSuccessful = true; }
             }
             break;
         }
@@ -119,10 +209,7 @@ function handlePlayerAction(playerId, action) {
                 const targetPlayer = gameState.players.find(p => p.id === action.targetPlayerId);
                 const targetTile = gameState.board.find(t => t.id === action.targetTileId);
                 if (targetPlayer && targetTile && !targetTile.sunk) {
-                    if (areTilesAdjacent(targetPlayer.position, targetTile.id, true)) {
-                         targetPlayer.position = targetTile.id;
-                         actionSuccessful = true;
-                    }
+                    if (areTilesAdjacent(targetPlayer.position, targetTile.id, true)) { targetPlayer.position = targetTile.id; actionSuccessful = true; }
                 }
             }
             break;
@@ -131,17 +218,14 @@ function handlePlayerAction(playerId, action) {
             const isExplorer = player.role.name === 'Explorer';
             const isDiver = player.role.name === 'Diver';
             const targetTile = gameState.board.find(t => t.id === action.tileId);
-
             if (targetTile) {
                 if (isDiver) {
-                    // Simplified Diver: Can move to an adjacent tile even if it's sunk.
-                    if (areTilesAdjacent(player.position, targetTile.id, true)) {
-                         player.position = targetTile.id;
-                         actionSuccessful = true;
+                    const validMoves = getDiverMoves(player.position);
+                    if (validMoves.includes(targetTile.id)) {
+                        player.position = targetTile.id; actionSuccessful = true;
                     }
                 } else if (!targetTile.sunk && areTilesAdjacent(player.position, targetTile.id, isExplorer)) {
-                    player.position = targetTile.id;
-                    actionSuccessful = true;
+                    player.position = targetTile.id; actionSuccessful = true;
                 }
             }
             break;
@@ -150,36 +234,23 @@ function handlePlayerAction(playerId, action) {
             const isExplorer = player.role.name === 'Explorer';
             const tile1 = gameState.board.find(t => t.id === action.tileId);
             let shoredUpCount = 0;
-
-            if (tile1 && tile1.flooded && (areTilesAdjacent(player.position, tile1.id, isExplorer) || player.position === tile1.id)) {
-                tile1.flooded = false;
-                shoredUpCount++;
-            }
-
+            if (tile1 && tile1.flooded && (areTilesAdjacent(player.position, tile1.id, isExplorer) || player.position === tile1.id)) { tile1.flooded = false; shoredUpCount++; }
             if (player.role.name === 'Engineer' && action.secondTileId !== undefined) {
                 const tile2 = gameState.board.find(t => t.id === action.secondTileId);
-                 if (tile2 && tile2.flooded && (areTilesAdjacent(player.position, tile2.id, isExplorer) || player.position === tile2.id)) {
-                    if (tile1.id !== tile2.id) {
-                        tile2.flooded = false;
-                    }
+                if (tile2 && tile2.flooded && (areTilesAdjacent(player.position, tile2.id, isExplorer) || player.position === tile2.id)) {
+                    if (tile1.id !== tile2.id) { tile2.flooded = false; }
                     shoredUpCount++;
                 }
             }
-
-            if (shoredUpCount > 0) {
-                actionSuccessful = true;
-            }
+            if (shoredUpCount > 0) actionSuccessful = true;
             break;
         }
         case 'give-card': {
             const targetPlayer = gameState.players.find(p => p.id === action.targetPlayerId);
             const cardToGiveIndex = player.hand.findIndex(c => c.name === action.cardName);
             if (targetPlayer && cardToGiveIndex !== -1 && (player.position === targetPlayer.position || player.role.name === 'Messenger')) {
-                if (targetPlayer.hand.length < 5) {
-                    const card = player.hand.splice(cardToGiveIndex, 1)[0];
-                    targetPlayer.hand.push(card);
-                    actionSuccessful = true;
-                } else { return { error: "Target player's hand is full." }; }
+                if (targetPlayer.hand.length < 5) { const card = player.hand.splice(cardToGiveIndex, 1)[0]; targetPlayer.hand.push(card); actionSuccessful = true; }
+                else { return { error: "Target player's hand is full." }; }
             }
             break;
         }
@@ -189,49 +260,39 @@ function handlePlayerAction(playerId, action) {
             if (treasureOnTile && !gameState.treasuresCaptured.includes(treasureOnTile)) {
                 const matchingCards = player.hand.filter(c => c.name === treasureOnTile);
                 if (matchingCards.length >= 4) {
-                    for (let i = 0; i < 4; i++) {
-                        const cardIndex = player.hand.findIndex(c => c.name === treasureOnTile);
-                        if (cardIndex !== -1) gameState.treasureDiscard.push(player.hand.splice(cardIndex, 1)[0]);
-                    }
-                    gameState.treasuresCaptured.push(treasureOnTile);
-                    actionSuccessful = true;
+                    for (let i = 0; i < 4; i++) { const cardIndex = player.hand.findIndex(c => c.name === treasureOnTile); if (cardIndex !== -1) gameState.treasureDiscard.push(player.hand.splice(cardIndex, 1)[0]); }
+                    gameState.treasuresCaptured.push(treasureOnTile); actionSuccessful = true;
                 }
             }
             break;
         }
     }
-
-    if (!actionSuccessful) {
-        return { error: "Invalid action or conditions not met." };
-    }
-
+    if (!actionSuccessful) return { error: "Invalid action or conditions not met." };
     gameState.actionsRemaining--;
     checkWinLossConditions();
-
     if (gameState.actionsRemaining === 0 && !gameState.gameOver) {
-        // --- End of Turn Sequence ---
-        // 1. Draw 2 Treasure Cards
+        gameState.phase = 'draw_treasure';
         for (let i = 0; i < 2; i++) drawTreasureCard(player);
-        checkWinLossConditions();
-        if (gameState.gameOver) return { success: true, gameState };
-
-        // 2. Draw Flood Cards
-        for (let i = 0; i < gameState.waterLevel; i++) drawFloodCard();
-        checkWinLossConditions();
-        if (gameState.gameOver) return { success: true, gameState };
-
-        // 3. Prepare for Next Player
-        gameState.turn = (gameState.turn + 1) % gameState.players.length;
-        gameState.actionsRemaining = 3;
-
-        // Reset turn-specific flags
-        const nextPlayer = gameState.players[gameState.turn];
-        if (nextPlayer.role.name === 'Pilot') {
-            nextPlayer.flyUsedThisTurn = false;
+        if (player.hand.length > 5) {
+            player.needsToDiscard = true;
+            gameState.phase = 'discard';
+            return { success: true, gameState };
         }
+        endTurnSequence();
     }
-
     return { success: true, gameState };
+}
+
+function endTurnSequence() {
+    gameState.phase = 'draw_flood';
+    for (let i = 0; i < gameState.waterLevel; i++) drawFloodCard();
+    checkWinLossConditions();
+    if (gameState.gameOver) return;
+    gameState.phase = 'actions';
+    gameState.turn = (gameState.turn + 1) % gameState.players.length;
+    gameState.actionsRemaining = 3;
+    const nextPlayer = gameState.players[gameState.turn];
+    if (nextPlayer.role.name === 'Pilot') nextPlayer.flyUsedThisTurn = false;
 }
 
 function drawTreasureCard(player, isSetup = false) {
@@ -242,8 +303,7 @@ function drawTreasureCard(player, isSetup = false) {
         handleWatersRise();
         gameState.treasureDiscard.push(card);
     } else {
-        if (player.hand.length < 5) player.hand.push(card);
-        else gameState.treasureDiscard.push(card);
+        player.hand.push(card);
     }
 }
 
@@ -273,35 +333,4 @@ function drawFloodCard() {
     }
 }
 
-function getTileCoordinates(tileId) {
-    let index = 0;
-    for (let y = 0; y < 5; y++) {
-        for (let x = 0; x < 5; x++) {
-            const isPlaceholder = ((y === 0 || y === 4) && (x === 0 || x === 4)) || ((y === 0 || y === 4) && (x === 1 || x === 3)) || ((y === 1 || y === 3) && (x === 0 || x === 4));
-            if (isPlaceholder) continue;
-            const tileOnBoard = gameState.board.find(t => t.id === index);
-            if (tileOnBoard) {
-                if (tileOnBoard.id === tileId) return { x, y };
-                index++;
-            }
-        }
-    }
-    return null;
-}
-
-function areTilesAdjacent(tileId1, tileId2, allowDiagonal = false) {
-    const pos1 = getTileCoordinates(tileId1);
-    const pos2 = getTileCoordinates(tileId2);
-    if (!pos1 || !pos2) return false;
-
-    const dx = Math.abs(pos1.x - pos2.x);
-    const dy = Math.abs(pos1.y - pos2.y);
-
-    if (allowDiagonal) {
-        return (dx <= 1 && dy <= 1) && (dx + dy > 0);
-    } else {
-        return (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
-    }
-}
-
-module.exports = { addPlayerToLobby, removePlayerFromLobby, setPlayerReady, getLobbyState, resetLobby, initializeGame, getGameState: () => gameState, handlePlayerAction, };
+module.exports = { addPlayerToLobby, removePlayerFromLobby, setPlayerReady, getLobbyState, resetLobby, initializeGame, getGameState: () => gameState, handlePlayerAction, handleDiscardAction };

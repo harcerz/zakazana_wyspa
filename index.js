@@ -11,6 +11,7 @@ const {
     resetLobby,
     initializeGame,
     handlePlayerAction,
+    handleDiscardAction,
 } = require('./game.js');
  
 server.listen(process.env.PORT || 3000, () => {
@@ -66,6 +67,16 @@ io.sockets.on('connection', function (socket) {
         } else {
             io.sockets.emit('gameStateUpdate', result.gameState);
         }
+   });
+
+   socket.on('discardAction', (data) => {
+       if (!gameInProgress) return;
+       const result = handleDiscardAction(socket.id, data.cardName);
+       if (result.error) {
+           socket.emit('actionError', result.error);
+       } else {
+           io.sockets.emit('gameStateUpdate', result.gameState);
+       }
    });
 
    socket.on('disconnect', function() {
