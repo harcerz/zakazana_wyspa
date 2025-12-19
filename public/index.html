@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zakazana Wyspa - Gra Online</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <!-- LOBBY SCREEN -->
+  <div id="lobby">
+    <!-- Menu Screen -->
+    <div id="menu-screen" class="lobby-container">
+      <h1>Zakazana Wyspa</h1>
+      <h2>Kooperacyjna gra przygodowa</h2>
+
+      <div id="menu-buttons">
+        <button id="btn-create" class="btn btn-primary">Utwórz Grę</button>
+        <button id="btn-join" class="btn btn-secondary">Dołącz do Gry</button>
+      </div>
+
+      <!-- Create Game Form -->
+      <div id="create-form" style="display: none;">
+        <div class="form-group">
+          <label>Twoje Imię</label>
+          <input type="text" id="create-player-name" placeholder="Wpisz swoje imię" maxlength="20">
+        </div>
+        <button id="btn-create-confirm" class="btn btn-primary">Utwórz</button>
+        <button class="btn btn-secondary btn-back">Wróć</button>
+      </div>
+
+      <!-- Join Game Form -->
+      <div id="join-form" style="display: none;">
+        <div class="form-group">
+          <label>Kod Gry</label>
+          <input type="text" id="join-code" placeholder="Wpisz kod gry" maxlength="6" style="text-transform: uppercase;">
+        </div>
+        <div class="form-group">
+          <label>Twoje Imię</label>
+          <input type="text" id="join-player-name" placeholder="Wpisz swoje imię" maxlength="20">
+        </div>
+        <button id="btn-join-confirm" class="btn btn-primary">Dołącz</button>
+        <button class="btn btn-secondary btn-back">Wróć</button>
+      </div>
+    </div>
+
+    <!-- Lobby Screen (after creating/joining) -->
+    <div id="lobby-screen" class="lobby-container" style="display: none;">
+      <h1>Poczekalnia</h1>
+
+      <div id="game-code">------</div>
+      <p style="color: #888; margin-bottom: 20px;">Podaj ten kod znajomym</p>
+
+      <div class="form-group">
+        <label>Poziom Trudności</label>
+        <select id="difficulty-select">
+          <option value="1">Nowicjusz (łatwy)</option>
+          <option value="2" selected>Normalny</option>
+          <option value="3">Elita (trudny)</option>
+          <option value="4">Legendarny (bardzo trudny)</option>
+        </select>
+      </div>
+
+      <div class="player-list">
+        <h3>Gracze (2-4)</h3>
+        <div id="lobby-players"></div>
+      </div>
+
+      <button id="btn-start-game" class="btn btn-primary" style="display: none;">Rozpocznij Grę</button>
+      <p style="color: #888; font-size: 0.9rem; margin-top: 15px;">
+        Potrzeba minimum 2 graczy, aby rozpocząć
+      </p>
+    </div>
+  </div>
+
+  <!-- GAME SCREEN -->
+  <div id="game">
+    <!-- Header -->
+    <div class="game-header">
+      <div class="game-info">
+        <div class="info-item">
+          <div class="info-label">Poziom Wody</div>
+          <div class="water-level">
+            <div id="water-meter" class="water-meter"></div>
+          </div>
+          <div id="water-level-text" class="info-value">1</div>
+        </div>
+      </div>
+
+      <div class="phase-indicator">
+        <div id="phase-name" class="phase-name">Faza Akcji</div>
+        <div id="phase-info" class="phase-info">Twoja tura!</div>
+      </div>
+
+      <div class="game-info">
+        <div class="info-item">
+          <div class="info-label">Artefakty</div>
+          <div id="artifacts-count" class="info-value">0/4</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Game Area -->
+    <div class="game-container">
+      <!-- Island Grid -->
+      <div class="island-container">
+        <div id="island-grid" class="island-grid"></div>
+      </div>
+
+      <!-- Side Panel -->
+      <div class="side-panel">
+        <!-- Artifacts -->
+        <div class="panel-section">
+          <h3>Artefakty</h3>
+          <div id="artifacts-grid" class="artifacts-grid"></div>
+        </div>
+
+        <!-- Player Hand -->
+        <div class="panel-section">
+          <h3>Twoje Karty</h3>
+          <div id="hand-cards" class="hand-cards"></div>
+        </div>
+
+        <!-- Actions -->
+        <div class="panel-section">
+          <h3>Akcje</h3>
+          <div class="actions-grid">
+            <button id="btn-move" class="action-btn">Ruch</button>
+            <button id="btn-shore" class="action-btn">Osusz</button>
+            <button id="btn-give" class="action-btn">Daj Kartę</button>
+            <button id="btn-capture" class="action-btn">Zbierz Artefakt</button>
+            <button id="btn-end-actions" class="action-btn">Zakończ Akcje</button>
+            <button id="btn-draw-treasure" class="action-btn">Dobierz Kartę</button>
+            <button id="btn-draw-flood" class="action-btn">Dobierz Powódź</button>
+          </div>
+        </div>
+
+        <!-- Players -->
+        <div class="panel-section">
+          <h3>Gracze</h3>
+          <div id="players-list" class="players-list"></div>
+        </div>
+
+        <!-- Chat -->
+        <div class="panel-section">
+          <h3>Czat</h3>
+          <div id="chat-messages" class="chat-container"></div>
+          <form id="chat-form" class="chat-input">
+            <input type="text" id="chat-input" placeholder="Napisz wiadomość..." autocomplete="off">
+            <button type="submit">Wyślij</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <h2 id="modal-title">Tytuł</h2>
+      <p id="modal-message">Wiadomość</p>
+      <button id="modal-close" class="btn btn-primary">OK</button>
+    </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/client.js"></script>
+</body>
+</html>
